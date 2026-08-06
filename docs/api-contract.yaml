@@ -1,0 +1,140 @@
+openapi: 3.1.0
+info:
+  title: Gatekeeper Rate Limiter API
+  version: 0.1.0
+  description: API contract agreed in Phase 0. Implementations begin in Phase 1.
+servers:
+  - url: http://localhost:8000
+paths:
+  /admin/keys:
+    post:
+      summary: Create an API key and rate-limit rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateKeyRequest'
+      responses:
+        '201': { description: Rule created, content: { application/json: { schema: { $ref: '#/components/schemas/RateLimitRule' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /admin/keys/{key}:
+    parameters:
+      - $ref: '#/components/parameters/ApiKey'
+    get:
+      summary: Get a rule and current usage
+      responses:
+        '200': { description: Rule and usage, content: { application/json: { schema: { $ref: '#/components/schemas/RuleUsage' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      summary: Replace mutable rate-limit configuration for a key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateKeyRequest'
+      responses:
+        '200': { description: Rule updated, content: { application/json: { schema: { $ref: '#/components/schemas/RateLimitRule' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /check:
+    post:
+      summary: Evaluate a rate-limit rule without proxying an upstream request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckRequest'
+      responses:
+        '200': { description: Decision made, content: { application/json: { schema: { $ref: '#/components/schemas/CheckResponse' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/data:
+    get:
+      summary: Dummy protected endpoint
+      security: [{ ApiKeyHeader: [] }]
+      responses:
+        '200': { description: Dummy data response }
+        '401': { description: API key absent or invalid }
+        '429': { description: Rate limit exceeded, headers: { Retry-After: { schema: { type: integer, minimum: 0 } } } }
+  /metrics:
+    get:
+      summary: Return live aggregate traffic metrics
+      responses:
+        '200': { description: Metrics snapshot, content: { application/json: { schema: { $ref: '#/components/schemas/MetricsResponse' } } } }
+  /live:
+    get:
+      summary: WebSocket endpoint for request events (Phase 5)
+      responses:
+        '101': { description: WebSocket upgrade accepted }
+components:
+  parameters:
+    ApiKey: { name: key, in: path, required: true, schema: { type: string } }
+  securitySchemes:
+    ApiKeyHeader: { type: apiKey, in: header, name: X-API-Key }
+  responses:
+    ValidationError: { description: Validation error }
+    NotFound: { description: API key not found }
+  schemas:
+    Algorithm: { type: string, enum: [fixed_window, sliding_window_log, token_bucket, sliding_window_counter] }
+    Scope: { type: string, enum: [api_key, ip, user, endpoint] }
+    CreateKeyRequest:
+      type: object
+      required: [name, limit, windowSeconds, algorithm]
+      properties:
+        name: { type: string, example: free-demo }
+        key: { type: string, description: Optional caller-supplied key; generated when omitted }
+        limit: { type: integer, minimum: 1, example: 100 }
+        windowSeconds: { type: integer, minimum: 1, example: 60 }
+        algorithm: { $ref: '#/components/schemas/Algorithm' }
+        scope: { $ref: '#/components/schemas/Scope', default: api_key }
+        endpoint: { type: string, nullable: true, example: /api/data }
+    UpdateKeyRequest:
+      type: object
+      required: [limit, windowSeconds, algorithm]
+      properties:
+        limit: { type: integer, minimum: 1 }
+        windowSeconds: { type: integer, minimum: 1 }
+        algorithm: { $ref: '#/components/schemas/Algorithm' }
+        scope: { $ref: '#/components/schemas/Scope' }
+        endpoint: { type: string, nullable: true }
+    RateLimitRule:
+      allOf:
+        - $ref: '#/components/schemas/CreateKeyRequest'
+        - type: object
+          required: [key, createdAt, updatedAt]
+          properties:
+            key: { type: string }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    RuleUsage:
+      type: object
+      required: [rule, remaining, resetAt]
+      properties:
+        rule: { $ref: '#/components/schemas/RateLimitRule' }
+        remaining: { type: integer, minimum: 0 }
+        resetAt: { type: string, format: date-time }
+    CheckRequest:
+      type: object
+      required: [key, endpoint]
+      properties:
+        key: { type: string }
+        endpoint: { type: string, example: /api/data }
+        identity: { type: string, description: Required when the rule scope is ip or user }
+    CheckResponse:
+      type: object
+      required: [allowed, remaining, resetAt]
+      properties:
+        allowed: { type: boolean }
+        remaining: { type: integer, minimum: 0 }
+        resetAt: { type: string, format: date-time }
+        retryAfterSeconds: { type: integer, minimum: 0 }
+    MetricsResponse:
+      type: object
+      required: [allowed, denied, observedAt]
+      properties:
+        allowed: { type: integer, minimum: 0 }
+        denied: { type: integer, minimum: 0 }
+        observedAt: { type: string, format: date-time }

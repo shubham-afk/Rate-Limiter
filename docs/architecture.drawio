@@ -1,0 +1,21 @@
+<mxfile host="app.diagrams.net" modified="2026-08-07T00:00:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="gatekeeper-architecture" name="Page-1">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="client" value="API client" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="40" y="250" width="120" height="60" as="geometry"/></mxCell>
+        <mxCell id="gateway" value="Gatekeeper&#xa;rate-limiter service" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="260" y="220" width="180" height="120" as="geometry"/></mxCell>
+        <mxCell id="backend" value="Dummy backend API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="560" y="250" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="redis" value="Redis&#xa;atomic shared state&#xa;&amp; hot rule cache" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="280" y="470" width="140" height="90" as="geometry"/></mxCell>
+        <mxCell id="postgres" value="PostgreSQL&#xa;durable rules &amp; analytics" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="530" y="470" width="160" height="90" as="geometry"/></mxCell>
+        <mxCell id="dashboard" value="React dashboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="270" y="60" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="e1" value="request" style="endArrow=block;html=1;" edge="1" parent="1" source="client" target="gateway"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="allow" style="endArrow=block;html=1;" edge="1" parent="1" source="gateway" target="backend"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="HTTP 429 when denied" style="endArrow=block;html=1;dashed=1;" edge="1" parent="1" source="gateway" target="client"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="atomic decisions" style="endArrow=block;startArrow=block;html=1;" edge="1" parent="1" source="gateway" target="redis"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="async events" style="endArrow=block;html=1;dashed=1;" edge="1" parent="1" source="gateway" target="postgres"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="REST + WebSocket" style="endArrow=block;startArrow=block;html=1;" edge="1" parent="1" source="dashboard" target="gateway"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

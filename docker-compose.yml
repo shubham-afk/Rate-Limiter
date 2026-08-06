@@ -1,0 +1,30 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: gatekeeper
+      POSTGRES_USER: gatekeeper
+      POSTGRES_PASSWORD: gatekeeper
+    ports: ["5432:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+  backend:
+    build: ./backend
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgres://gatekeeper:gatekeeper@postgres:5432/gatekeeper
+      DJANGO_DEBUG: "true"
+    volumes: [./backend:/app]
+    ports: ["8000:8000"]
+    depends_on: [redis, postgres]
+  frontend:
+    build: ./frontend
+    command: npm run dev -- --host 0.0.0.0
+    volumes: [./frontend:/app, /app/node_modules]
+    ports: ["5173:5173"]
+    depends_on: [backend]
+volumes:
+  postgres_data:

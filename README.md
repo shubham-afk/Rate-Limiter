@@ -61,4 +61,22 @@ The source of truth is [docs/api-contract.yaml](docs/api-contract.yaml). The ini
 
 ## Development status
 
-**Phase 0 — setup and design.** No limiter behavior is considered implemented until its corresponding phase is complete.
+**Phase 1 — single-instance fixed-window limiter.** `/api/data` is protected by an in-memory, per-API-key fixed-window counter (100 requests per 60 seconds by default). It is deliberately process-local until Phase 2.
+
+## Phase 1 local demo
+
+From `backend/`, start Django with `python manage.py runserver`, then send requests with an API key:
+
+```bash
+for i in {1..105}; do
+  curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: demo-key" http://localhost:8000/api/data
+done
+```
+
+The first 100 responses are `200`; the remaining five are `429`. On PowerShell, use:
+
+```powershell
+1..105 | ForEach-Object { (Invoke-WebRequest http://localhost:8000/api/data -Headers @{ 'X-API-Key' = 'demo-key' } -SkipHttpErrorCheck).StatusCode }
+```
+
+Run the tests with `python manage.py test limiter`. The boundary-burst test intentionally proves that a fixed window allows 200 requests around a 60-second boundary.

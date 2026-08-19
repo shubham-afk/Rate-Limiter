@@ -1,7 +1,8 @@
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from .fixed_window import FixedWindowLimiter
-from .middleware import set_limiter_for_testing
+from .event_queue import RequestEventPublisher
+from .redis_limiter import RedisRateLimiter
 
 
 class FixedWindowLimiterTests(TestCase):
@@ -35,31 +36,69 @@ class FixedWindowLimiterTests(TestCase):
         self.assertFalse(limiter.check("demo-key").allowed)
 
 
-class ProtectedEndpointTests(TestCase):
-    def setUp(self):
-        self.limiter = FixedWindowLimiter(limit=2, window_seconds=60, clock=lambda: 10)
-        set_limiter_for_testing(self.limiter)
+class RecordingRedis:
+    def __init__(self):
+        self.calls = []
 
-    def tearDown(self):
-        # Restore the normal development configuration for following tests.
-        from django.conf import settings
+    def eval(self, script, key_count, *args):
+        self.calls.append((script, key_count, args))
+        return [1, 7, 123]
 
-        set_limiter_for_testing(
-            FixedWindowLimiter(settings.RATE_LIMIT_LIMIT, settings.RATE_LIMIT_WINDOW_SECONDS)
-        )
+    def rpush(self, key, payload):
+        self.calls.append(("rpush", key, payload))
 
-    def test_data_endpoint_returns_429_after_the_limit(self):
-        headers = {"HTTP_X_API_KEY": "demo-key"}
 
-        self.assertEqual(self.client.get("/api/data", **headers).status_code, 200)
-        allowed = self.client.get("/api/data", **headers)
-        denied = self.client.get("/api/data", **headers)
+class RedisAlgorithmDispatchTests(TestCase):
+    def test_dispatches_algorithms_to_atomic_lua_script(self):
+        client = RecordingRedis()
+        limiter = RedisRateLimiter(client)
 
-        self.assertEqual(allowed["X-RateLimit-Remaining"], "0")
-        self.assertEqual(denied.status_code, 429)
-        self.assertEqual(denied.json()["remaining"], 0)
+        decision = limiter.check("demo-key", "token_bucket", 10, 60)
 
-    def test_data_endpoint_requires_an_api_key(self):
-        response = self.client.get("/api/data")
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.remaining, 7)
+        self.assertEqual(client.calls[0][1], 1)
+        self.assertEqual(client.calls[0][2], ("rl:token:demo-key", 10, 60))
+
+    def test_uses_the_sliding_window_counter_script_for_its_rule_identifier(self):
+        client = RecordingRedis()
+
+        RedisRateLimiter(client).check("demo-key", "sliding_window_counter", 10, 60)
+
+        self.assertEqual(client.calls[0][2], ("rl:sliding:demo-key", 60, 10))
+
+
+@override_settings(ADMIN_API_TOKEN="test-admin-token")
+class AdminRuleApiTests(TestCase):
+    payload = {"name": "demo", "key": "demo-key", "algorithm": "sliding_window_counter", "limit": 10, "windowSeconds": 60}
+
+    def test_admin_api_requires_bearer_token(self):
+        response = self.client.post("/admin/keys", self.payload, content_type="application/json")
 
         self.assertEqual(response.status_code, 401)
+
+    def test_admin_api_creates_a_supported_sliding_counter_rule(self):
+        response = self.client.post("/admin/keys", self.payload, content_type="application/json",
+                                    HTTP_AUTHORIZATION="Bearer test-admin-token")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["algorithm"], "sliding_window_counter")
+
+    def test_ip_fallback_rule_is_persisted_without_an_api_key(self):
+        payload = {"name": "anonymous", "algorithm": "fixed_window", "limit": 5, "windowSeconds": 60}
+
+        response = self.client.put("/admin/rules/ip-fallback", payload, content_type="application/json",
+                                   HTTP_AUTHORIZATION="Bearer test-admin-token")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["scope"], "ip")
+        self.assertIsNone(response.json()["key"])
+
+
+class RequestEventQueueTests(TestCase):
+    def test_event_is_enqueued_without_database_write(self):
+        client = RecordingRedis()
+
+        RequestEventPublisher(client).publish({"allowed": True, "endpoint": "/api/data"})
+
+        self.assertEqual(client.calls[0][0], "rpush")

@@ -14,7 +14,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware", "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware", "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware", "django.contrib.messages.middleware.MessageMiddleware",
-    "limiter.middleware.FixedWindowRateLimitMiddleware",
+    "limiter.middleware.RedisRateLimitMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
 TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True,
@@ -32,9 +32,5 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-REDIS_URL = os.getenv("REDIS_URL", "")
-
-# Phase 1 deliberately keeps this state in the Django process. It will be
-# replaced by Redis-backed state in Phase 2.
-RATE_LIMIT_LIMIT = int(os.getenv("RATE_LIMIT_LIMIT", "100"))
-RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")

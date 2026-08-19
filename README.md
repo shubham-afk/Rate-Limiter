@@ -61,11 +61,29 @@ The source of truth is [docs/api-contract.yaml](docs/api-contract.yaml). The ini
 
 ## Development status
 
-**Phase 1 — single-instance fixed-window limiter.** `/api/data` is protected by an in-memory, per-API-key fixed-window counter (100 requests per 60 seconds by default). It is deliberately process-local until Phase 2.
+**Phase 2 — distributed Redis limiter.** `/api/data` is protected by rules in PostgreSQL, cached in Redis, and enforced atomically by Redis Lua scripts across every gateway instance. Fixed window, token bucket, and sliding-window-counter rules are available. Sliding-window-log remains a planned Phase 3 algorithm.
+
+**Phase 3 — persisted configuration and logging.** API credentials live separately from their rules; unauthenticated clients can be constrained by a persisted IP fallback rule. Request events are appended to a Redis queue and persisted by the `event_worker` service, keeping PostgreSQL writes out of the decision path.
 
 ## Phase 1 local demo
 
-From `backend/`, start Django with `python manage.py runserver`, then send requests with an API key:
+## Phase 2 distributed demo
+
+Start the two gateway instances, shared Redis, Postgres, and Nginx load balancer:
+
+```bash
+docker compose up --build
+```
+
+Create a rule through the Nginx entry point:
+
+```bash
+curl -X POST http://localhost:8000/admin/keys -H "Content-Type: application/json" \
+  -H "Authorization: Bearer local-development-admin-token" \
+  -d '{"name":"demo","key":"demo-key","algorithm":"fixed_window","limit":100,"windowSeconds":60}'
+```
+
+Then send requests with an API key:
 
 ```bash
 for i in {1..105}; do
@@ -79,4 +97,25 @@ The first 100 responses are `200`; the remaining five are `429`. On PowerShell, 
 1..105 | ForEach-Object { (Invoke-WebRequest http://localhost:8000/api/data -Headers @{ 'X-API-Key' = 'demo-key' } -SkipHttpErrorCheck).StatusCode }
 ```
 
-Run the tests with `python manage.py test limiter`. The boundary-burst test intentionally proves that a fixed window allows 200 requests around a 60-second boundary.
+To create a repeatable race-condition proof, run this while the Compose services are running:
+
+```bash
+docker compose exec backend_1 python manage.py demonstrate_race
+```
+
+It prints two `True` results from the deliberately unsafe `GET → check → SET` code at a limit of one, then one `True` and one `False` from the atomic Lua script. Capture that terminal output in your README/screenshots when you run the demo.
+
+Run the tests with `python manage.py test limiter`. The Phase 1 boundary-burst test intentionally proves that a fixed window allows 200 requests around a 60-second boundary.
+
+`ADMIN_API_TOKEN` protects rule-management endpoints. Docker Compose uses `local-development-admin-token` only as a local default. Set a strong secret in your environment before deploying, for example: `ADMIN_API_TOKEN=... docker compose up --build`.
+
+### Phase 3 IP fallback
+
+Configure a persisted limit for requests that have no `X-API-Key` header:
+
+```powershell
+$fallback = @{ name = "anonymous"; algorithm = "fixed_window"; limit = 10; windowSeconds = 60 } | ConvertTo-Json -Compress
+Invoke-RestMethod -Method Put -Uri "http://localhost:8000/admin/rules/ip-fallback" -ContentType "application/json" -Headers @{ Authorization = "Bearer local-development-admin-token" } -Body $fallback
+```
+
+The Nginx proxy forwards the client address; unauthenticated calls to `/api/data` share an IP-scoped counter. The `event_worker` service consumes Redis queue events and inserts `RequestLog` records in PostgreSQL asynchronously.

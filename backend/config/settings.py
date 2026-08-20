@@ -35,7 +35,7 @@ USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")
+ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN") or ("token123" if DEBUG else None)
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv(
     "CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
 ).split(",") if origin.strip()]
